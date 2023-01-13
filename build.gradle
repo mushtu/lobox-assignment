@@ -13,6 +13,7 @@ repositories {
 }
 
 dependencies {
+	implementation 'net.sizovs:pipelinr:0.8'
 	implementation 'org.springframework.boot:spring-boot-starter-web'
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 }
