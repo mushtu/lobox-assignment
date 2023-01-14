@@ -1,0 +1,3 @@
+rocksdb:
+  dataDir: "/home/mushtu/rocksdb/data"
+  createIfMissing: true

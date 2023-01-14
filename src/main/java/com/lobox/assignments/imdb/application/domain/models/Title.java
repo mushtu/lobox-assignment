@@ -1,8 +1,9 @@
 package com.lobox.assignments.imdb.application.domain.models;
 
+import java.io.Serializable;
 import java.util.Collection;
 
-public class Title {
+public class Title implements Serializable {
     private String id;
     private Integer ordering;
     private String primaryTitle;
