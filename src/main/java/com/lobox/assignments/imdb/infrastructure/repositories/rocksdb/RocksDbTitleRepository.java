@@ -1,75 +1,71 @@
 package com.lobox.assignments.imdb.infrastructure.repositories.rocksdb;
 
+import com.lobox.assignments.imdb.application.domain.models.PageRequest;
 import com.lobox.assignments.imdb.application.domain.models.Title;
+import com.lobox.assignments.imdb.application.domain.repositories.PersonRepository;
 import com.lobox.assignments.imdb.application.domain.repositories.TitleRepository;
-import jakarta.annotation.PostConstruct;
-import jakarta.annotation.PreDestroy;
-import org.rocksdb.*;
+import org.rocksdb.ComparatorOptions;
+import org.rocksdb.RocksDBException;
+import org.rocksdb.RocksIterator;
 import org.rocksdb.util.BytewiseComparator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Repository;
-import org.springframework.util.SerializationUtils;
 
-import java.io.File;
-import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.nio.file.Files;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
 @Repository
 public class RocksDbTitleRepository implements TitleRepository {
     private final Logger logger = LoggerFactory.getLogger(RocksDbTitleRepository.class);
-    private static final String TITLES_WRITER_INDEX = "titles-writer-index";
-    private static final String TITLES_DIRECTOR_INDEX = "titles-director-index";
-    private final RocksDbProperties rocksDbProperties;
-    private RocksDB titlesDb;
-    private ColumnFamilyHandle directorIndex;
-    private ColumnFamilyHandle writerIndex;
+    private final RocksDatabase rocks;
+    private final PersonRepository personRepository;
+    private final RocksDbSerializations rocksDbSerializations;
 
-    public RocksDbTitleRepository(RocksDbProperties rocksDbProperties) {
-        this.rocksDbProperties = rocksDbProperties;
+    public RocksDbTitleRepository(RocksDatabase rocks, PersonRepository personRepository, RocksDbSerializations rocksDbSerializations) {
+        this.rocks = rocks;
+        this.personRepository = personRepository;
+        this.rocksDbSerializations = rocksDbSerializations;
     }
 
 
-    @PostConstruct
-    void initialize() {
-        RocksDB.loadLibrary();
-        final DBOptions options = new DBOptions();
-        options.setCreateIfMissing(rocksDbProperties.isCreateIfMissing());
-        options.setCreateMissingColumnFamilies(true);
-        try {
-            File titlesDbPath = new File(rocksDbProperties.getDataDir(), "titles");
-            Files.createDirectories(titlesDbPath.getParentFile().toPath());
-            List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
-            this.titlesDb = RocksDB.open(options, titlesDbPath.getAbsolutePath(),
-                    List.of(new ColumnFamilyDescriptor("default".getBytes()), new ColumnFamilyDescriptor(TITLES_WRITER_INDEX.getBytes()),
-                            new ColumnFamilyDescriptor(TITLES_DIRECTOR_INDEX.getBytes())), columnFamilyHandles);
-            writerIndex = columnFamilyHandles.get(1);
-            directorIndex = columnFamilyHandles.get(2);
-        } catch (IOException | RocksDBException ex) {
-            throw new RuntimeException("Error initializing RocksDB, check configurations and permissions.", ex);
-        }
+    private void setTitleCrews(Title title) {
+        title.setDirectors(getTitleDirectorsId(title.getId()));
+        title.setWriters(getTitleWritersId(title.getId()));
     }
 
-    @PreDestroy
-    void close() {
-        if (this.titlesDb != null) {
-            titlesDb.close();
+    private Collection<String> getTitleDirectorsId(String titleId) {
+        try (RocksIterator itr = rocks.db().newIterator(rocks.titlesSecondaryIndexDirectors())) {
+            itr.seek(titleId.getBytes());
+            if (itr.isValid()) {
+                String key = new String(itr.key());
+                return Arrays.stream(key.split("\\.")[1].split(",")).toList();
+            }
         }
+        return Collections.emptyList();
+    }
+
+    private Collection<String> getTitleWritersId(String titleId) {
+        try (RocksIterator itr = rocks.db().newIterator(rocks.titlesSecondaryIndexWriters())) {
+            itr.seek(titleId.getBytes());
+            if (itr.isValid()) {
+                String key = new String(itr.key());
+                return Arrays.stream(key.split("\\.")[1].split(",")).toList();
+            }
+        }
+        return Collections.emptyList();
     }
 
     @Override
     public Optional<Title> FindById(String id) {
         try {
-            byte[] bytes = titlesDb.get(id.getBytes());
+            byte[] bytes = rocks.db().get(rocks.titlesPrimaryIndex(), id.getBytes());
             if (bytes != null) {
-                return Optional.of(deserializeTitle(bytes));
+                Title title = rocksDbSerializations.deserializeTitle(bytes);
+                setTitleCrews(title);
+                return Optional.of(title);
             }
             return Optional.empty();
         } catch (RocksDBException e) {
@@ -80,92 +76,71 @@ public class RocksDbTitleRepository implements TitleRepository {
     @Override
     public Collection<Title> FindAllByIds(Iterable<String> ids) {
         try {
-            List<byte[]> values = titlesDb.multiGetAsList(StreamSupport.stream(ids.spliterator(), false).map(String::getBytes).collect(Collectors.toList()));
-            return values.stream().map(this::deserializeTitle).collect(Collectors.toList());
+            List<byte[]> values = rocks.db().multiGetAsList(StreamSupport.stream(ids.spliterator(), false).map(s -> rocks.titlesPrimaryIndex()).toList(),
+                    StreamSupport.stream(ids.spliterator(), false).map(String::getBytes).collect(Collectors.toList()));
+            List<Title> titles = values.stream().map(rocksDbSerializations::deserializeTitle).toList();
+            titles.forEach(this::setTitleCrews);
+            return titles;
         } catch (RocksDBException e) {
             throw new RuntimeException(e);
         }
     }
 
     @Override
-    public Collection<Title> FindAllWithEqualDirectorAndWriter() {
+    public Collection<Title> FindAllWithEqualDirectorAndWriterAndAlive(PageRequest<String> pageRequest) {
         BytewiseComparator comparator = new BytewiseComparator(new ComparatorOptions());
         List<String> titleIds = new ArrayList<>();
-        RocksIterator directorIterator = titlesDb.newIterator(directorIndex);
-        RocksIterator writerIterator = titlesDb.newIterator(writerIndex);
-        directorIterator.seekToFirst();
-        writerIterator.seekToFirst();
-        while (directorIterator.isValid() && writerIterator.isValid()) {
-            byte[] directorKey = directorIterator.key();
-            byte[] writerKey = writerIterator.key();
-            int compareResult = comparator.compare(ByteBuffer.wrap(directorKey), ByteBuffer.wrap(writerKey));
-            if (compareResult == 0) {
-                String key = new String(directorKey);
-                String[] tokens = key.split("\\.");
-                titleIds.add(tokens[0]);
-                directorIterator.next();
-                writerIterator.next();
-            } else {
-                if (compareResult < 0) {
-                    directorIterator.seek(writerKey);
+        try (RocksIterator directorIterator = rocks.db().newIterator(rocks.titlesSecondaryIndexDirectors())) {
+            try (RocksIterator writerIterator = rocks.db().newIterator(rocks.titlesSecondaryIndexWriters())) {
+                if (pageRequest.getLastKey() != null) {
+                    directorIterator.seek(pageRequest.getLastKey().getBytes());
+                    writerIterator.seek(pageRequest.getLastKey().getBytes());
+                    if (directorIterator.isValid() && writerIterator.isValid()) {
+                        directorIterator.next();
+                        writerIterator.next();
+                    }
                 } else {
-                    writerIterator.seek(directorKey);
+                    directorIterator.seekToFirst();
+                    writerIterator.seekToFirst();
                 }
+                while (directorIterator.isValid() && writerIterator.isValid() && titleIds.size() < pageRequest.getPageSize()) {
+                    byte[] directorKey = directorIterator.key();
+                    byte[] writerKey = writerIterator.key();
+                    int compareResult = comparator.compare(ByteBuffer.wrap(directorKey), ByteBuffer.wrap(writerKey));
+                    if (compareResult == 0) {
+                        String key = new String(directorKey);
+                        String[] tokens = key.split("\\.");
+                        List<String> persons = Arrays.stream(tokens[1].split(",")).toList();
+                        if (personRepository.FindAllWithIdsAndAlive(persons).size() == persons.size()) {
+                            titleIds.add(tokens[0]);
+                        }
+                        directorIterator.next();
+                        writerIterator.next();
+                    } else {
+                        if (compareResult < 0) {
+                            directorIterator.seek(writerKey);
+                        } else {
+                            writerIterator.seek(directorKey);
+                        }
+                    }
+                }
+                return FindAllByIds(titleIds);
             }
         }
-        return FindAllByIds(titleIds);
     }
 
-    @Override
-    public Title Save(Title title) {
-        try {
-            titlesDb.put(title.getId().getBytes(), serializeTitle(title));
-            RocksIterator directorIterator = titlesDb.newIterator(directorIndex);
-            RocksIterator writerIterator = titlesDb.newIterator(writerIndex);
-            directorIterator.seek(title.getId().getBytes());
-            writerIterator.seek(title.getId().getBytes());
-            updateIndex(writerIndex, title.getId(), title.getWriters());
-            updateIndex(directorIndex, title.getId(), title.getDirectors());
-            return title;
+    /*public void insertMultiple(Iterable<Title> titles) {
+        try (WriteBatch wb = new WriteBatch()) {
+            for (Title title : titles) {
+                wb.put(rocks.titlesPrimaryIndex(), title.getId().getBytes(), serializeTitle(title));
+                String directorsSubKey = String.join(",", title.getDirectors().stream().sorted().toList());
+                wb.put(rocks.titlesSecondaryIndexDirectors(), (title.getId() + "." + directorsSubKey).getBytes(), new byte[0]);
+                String writersSubKey = String.join(",", title.getWriters().stream().sorted().toList());
+                wb.put(rocks.titlesSecondaryIndexWriters(), (title.getId() + "." + writersSubKey).getBytes(), new byte[0]);
+            }
+            rocks.db().write(new WriteOptions(), wb);
         } catch (RocksDBException e) {
             throw new RuntimeException(e);
         }
-    }
-
-    private void updateIndex(ColumnFamilyHandle indexFamily, String titleId, Iterable<String> subKeys) {
-        try {
-            RocksIterator iterator = titlesDb.newIterator(indexFamily);
-            List<byte[]> previousKeys = new ArrayList<>();
-            String indexPrefix = titleId + ".";
-            for (iterator.seek(indexPrefix.getBytes()); iterator.isValid(); iterator.next()) {
-                String key = new String(iterator.key());
-                if (!key.startsWith(indexPrefix))
-                    break;
-                previousKeys.add(iterator.key());
-            }
-
-            try (WriteBatch wb = new WriteBatch()) {
-                for (byte[] oldKey : previousKeys) {
-                    wb.delete(indexFamily, oldKey);
-                }
-                for (String subKey : subKeys) {
-                    String indexKey = titleId + "." + subKey;
-                    wb.put(indexFamily, indexKey.getBytes(), new byte[0]);
-                }
-                titlesDb.write(new WriteOptions(), wb);
-            }
-
-        } catch (RocksDBException e) {
-            throw new RuntimeException(e);
-        }
-
-    }
-
-    private byte[] serializeTitle(Title title) {
-        return SerializationUtils.serialize(title);
-    }
-
-    private Title deserializeTitle(byte[] value) {
-        return (Title) SerializationUtils.deserialize(value);
-    }
+    }*/
 }

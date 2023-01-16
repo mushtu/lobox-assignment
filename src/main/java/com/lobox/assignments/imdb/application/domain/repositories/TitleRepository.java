@@ -1,5 +1,6 @@
 package com.lobox.assignments.imdb.application.domain.repositories;
 
+import com.lobox.assignments.imdb.application.domain.models.PageRequest;
 import com.lobox.assignments.imdb.application.domain.models.Title;
 
 import java.util.Collection;
@@ -10,7 +11,5 @@ public interface TitleRepository {
 
     Collection<Title> FindAllByIds(Iterable<String> ids);
 
-    Collection<Title> FindAllWithEqualDirectorAndWriter();
-
-    Title Save(Title title);
+    Collection<Title> FindAllWithEqualDirectorAndWriterAndAlive(PageRequest<String> pageRequest);
 }
