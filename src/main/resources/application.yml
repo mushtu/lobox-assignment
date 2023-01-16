@@ -1,3 +1,13 @@
 rocksdb:
-  dataDir: "/home/mushtu/rocksdb/data"
+  dataDir: "/media/mushtu/New Volume1/lobox/rocksdb/data"
   createIfMissing: true
+  dbWriteBufferSize: 536870912 # 512 MB
+  targetFileSizeBase: 268435456 # 256 MB
+
+application:
+  datasetReaderBufferSize: 1048576 # 1 MB => 1 * 1024 * 1024
+  tmpDirectory:
+  datasets:
+    title-basics-tsv: "/media/mushtu/New Volume1/ImdbDataSet/title.basics.tsv"
+    title-crew-tsv: "/media/mushtu/New Volume1/ImdbDataSet/title.crew.tsv"
+    name-basics-tsv: "/media/mushtu/New Volume1/ImdbDataSet/name.basics.tsv"

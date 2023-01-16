@@ -1,8 +1,9 @@
 package com.lobox.assignments.imdb.application.domain.models;
 
+import java.io.Serializable;
 import java.util.Collection;
 
-public class Person {
+public class Person implements Serializable {
     private String id;
     private String primaryName;
     private Integer birthYear;

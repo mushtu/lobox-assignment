@@ -7,13 +7,15 @@ plugins {
 group = 'com.lobox.assignments'
 version = '0.0.1-SNAPSHOT'
 sourceCompatibility = '17'
-
+bootRun {
+    jvmArgs = ["-Xmx6g"]
+}
 repositories {
     mavenCentral()
 }
 
 dependencies {
-    // https://mvnrepository.com/artifact/org.rocksdb/rocksdbjni
+    implementation 'com.univocity:univocity-parsers:2.9.1'
     implementation group: 'org.rocksdb', name: 'rocksdbjni', version: '7.8.3'
     implementation 'net.sizovs:pipelinr:0.8'
     implementation 'org.springframework.boot:spring-boot-starter-web'
