@@ -6,6 +6,7 @@ import java.util.Collection;
 public class Title implements Serializable {
     private String id;
     private Integer ordering;
+    private String titleType;
     private String primaryTitle;
     private String originalTitle;
     private Boolean isAdult;
@@ -111,5 +112,13 @@ public class Title implements Serializable {
 
     public void setCast(Collection<String> cast) {
         this.cast = cast;
+    }
+
+    public String getTitleType() {
+        return titleType;
+    }
+
+    public void setTitleType(String titleType) {
+        this.titleType = titleType;
     }
 }

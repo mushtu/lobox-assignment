@@ -18,19 +18,23 @@ public class RocksDatabase {
     private final Logger logger = LoggerFactory.getLogger(RocksDbTitleRepository.class);
     private static final String DATABASE_NAME = "imdb";
 
+    private static final String PRINCIPALS_PRIMARY_INDEX_NAME = "principals";
     private static final String TITLES_PRIMARY_INDEX_NAME = "titles";
     private static final String PERSONS_PRIMARY_INDEX_NAME = "persons";
     private static final String TITLES_WRITER_INDEX_NAME = "titles-writer-index";
     private static final String TITLES_DIRECTOR_INDEX_NAME = "titles-director-index";
     private static final String PERSONS_DEATH_YEAR_INDEX_NAME = "persons-death-year-index";
     private static final String DEFAULT_INDEX_NAME = "default";
+    private static final String PRINCIPALS_PERSON_INDEX_NAME = "principals-person-index";
     private final RocksDbProperties rocksDbProperties;
     private RocksDB db;
+    private ColumnFamilyHandle principalsPrimaryIndex;
     private ColumnFamilyHandle titlesPrimaryIndex;
     private ColumnFamilyHandle personsPrimaryIndex;
     private ColumnFamilyHandle titlesSecondaryIndexWriters;
     private ColumnFamilyHandle titlesSecondaryIndexDirectors;
     private ColumnFamilyHandle personsSecondaryIndexDeathYear;
+    private ColumnFamilyHandle principalsSecondaryIndexPersons;
 
     public RocksDatabase(RocksDbProperties rocksDbProperties) {
         this.rocksDbProperties = rocksDbProperties;
@@ -44,14 +48,15 @@ public class RocksDatabase {
         try {
             File dbPath = new File(rocksDbProperties.getDataDir(), DATABASE_NAME);
             Files.createDirectories(dbPath.getParentFile().toPath());
-            ColumnFamilyOptions columnFamilyOptions = createColumnFamilyOptions();
             List<ColumnFamilyDescriptor> columnFamilies = List.of(
-                    new ColumnFamilyDescriptor(DEFAULT_INDEX_NAME.getBytes(), columnFamilyOptions),
-                    new ColumnFamilyDescriptor(TITLES_PRIMARY_INDEX_NAME.getBytes(), columnFamilyOptions),
-                    new ColumnFamilyDescriptor(TITLES_WRITER_INDEX_NAME.getBytes(), columnFamilyOptions),
-                    new ColumnFamilyDescriptor(TITLES_DIRECTOR_INDEX_NAME.getBytes(), columnFamilyOptions),
-                    new ColumnFamilyDescriptor(PERSONS_PRIMARY_INDEX_NAME.getBytes(), columnFamilyOptions),
-                    new ColumnFamilyDescriptor(PERSONS_DEATH_YEAR_INDEX_NAME.getBytes(), columnFamilyOptions)
+                    new ColumnFamilyDescriptor(DEFAULT_INDEX_NAME.getBytes(), createColumnFamilyOptions()),
+                    new ColumnFamilyDescriptor(TITLES_PRIMARY_INDEX_NAME.getBytes(), createColumnFamilyOptions()),
+                    new ColumnFamilyDescriptor(TITLES_WRITER_INDEX_NAME.getBytes(), createColumnFamilyOptions()),
+                    new ColumnFamilyDescriptor(TITLES_DIRECTOR_INDEX_NAME.getBytes(), createColumnFamilyOptions()),
+                    new ColumnFamilyDescriptor(PERSONS_PRIMARY_INDEX_NAME.getBytes(), createColumnFamilyOptions()),
+                    new ColumnFamilyDescriptor(PERSONS_DEATH_YEAR_INDEX_NAME.getBytes(), createColumnFamilyOptions()),
+                    new ColumnFamilyDescriptor(PRINCIPALS_PRIMARY_INDEX_NAME.getBytes(), createColumnFamilyOptions()),
+                    new ColumnFamilyDescriptor(PRINCIPALS_PERSON_INDEX_NAME.getBytes(), createColumnFamilyOptions())
             );
             List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
             this.db = RocksDB.open(options, dbPath.getAbsolutePath(), columnFamilies, columnFamilyHandles);
@@ -60,6 +65,8 @@ public class RocksDatabase {
             titlesSecondaryIndexDirectors = columnFamilyHandles.get(3);
             personsPrimaryIndex = columnFamilyHandles.get(4);
             personsSecondaryIndexDeathYear = columnFamilyHandles.get(5);
+            principalsPrimaryIndex = columnFamilyHandles.get(6);
+            principalsSecondaryIndexPersons = columnFamilyHandles.get(7);
         } catch (IOException | RocksDBException ex) {
             throw new RuntimeException("Error initializing RocksDB, check configurations and permissions.", ex);
         }
@@ -158,5 +165,13 @@ public class RocksDatabase {
 
     public ColumnFamilyHandle personsSecondaryIndexDeathYear() {
         return personsSecondaryIndexDeathYear;
+    }
+
+    public ColumnFamilyHandle principalsPrimaryIndex() {
+        return principalsPrimaryIndex;
+    }
+
+    public ColumnFamilyHandle principalsSecondaryIndexPersons() {
+        return principalsSecondaryIndexPersons;
     }
 }

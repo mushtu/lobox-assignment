@@ -8,14 +8,14 @@ group = 'com.lobox.assignments'
 version = '0.0.1-SNAPSHOT'
 sourceCompatibility = '17'
 bootRun {
-    jvmArgs = ["-Xmx6g"]
+    jvmArgs = ["-Xmx6g","-Djava.io.tmpdir=/media/mushtu/New Volume1/lobox/tmp"]
 }
 repositories {
     mavenCentral()
 }
 
 dependencies {
-    implementation 'com.univocity:univocity-parsers:2.9.1'
+    implementation 'de.siegmar:fastcsv:2.2.1'
     implementation group: 'org.rocksdb', name: 'rocksdbjni', version: '7.8.3'
     implementation 'net.sizovs:pipelinr:0.8'
     implementation 'org.springframework.boot:spring-boot-starter-web'

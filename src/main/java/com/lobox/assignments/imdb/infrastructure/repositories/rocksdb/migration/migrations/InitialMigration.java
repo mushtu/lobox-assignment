@@ -1,41 +1,39 @@
 package com.lobox.assignments.imdb.infrastructure.repositories.rocksdb.migration.migrations;
 
 import com.lobox.assignments.imdb.application.domain.models.Person;
+import com.lobox.assignments.imdb.application.domain.models.Principal;
 import com.lobox.assignments.imdb.application.domain.models.Title;
 import com.lobox.assignments.imdb.infrastructure.repositories.rocksdb.RocksDatabase;
 import com.lobox.assignments.imdb.infrastructure.repositories.rocksdb.RocksDbSerializations;
 import com.lobox.assignments.imdb.infrastructure.repositories.rocksdb.migration.RocksDbMigration;
-import com.lobox.assignments.imdb.infrastructure.repositories.rocksdb.migration.StringArrayConversion;
-import com.univocity.parsers.common.ParsingContext;
-import com.univocity.parsers.common.processor.ObjectRowProcessor;
-import com.univocity.parsers.conversions.Conversions;
-import com.univocity.parsers.tsv.TsvParser;
-import com.univocity.parsers.tsv.TsvParserSettings;
+import de.siegmar.fastcsv.reader.CommentStrategy;
+import de.siegmar.fastcsv.reader.CsvReader;
+import de.siegmar.fastcsv.reader.CsvRow;
 import org.rocksdb.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import java.io.FileNotFoundException;
-import java.io.FileReader;
 import java.io.IOException;
+import java.io.Reader;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
 import java.util.function.Consumer;
 
 @Component
 public class InitialMigration implements RocksDbMigration {
     private final Logger logger = LoggerFactory.getLogger(InitialMigration.class);
-    private static final int BATCH_INSERT_SIZE = 100000;
     private final RocksDatabase rocks;
     private final RocksDbSerializations rocksDbSerializations;
     private @Value("${application.datasets.title-basics-tsv}") String titleBasicsTsv;
+    private @Value("${application.datasets.title-principals-tsv}") String titlePrincipalsTsv;
     private @Value("${application.datasets.title-crew-tsv}") String titleCrewTsv;
     private @Value("${application.datasets.name-basics-tsv}") String personsTsv;
-    private @Value("${application.datasetReaderBufferSize}") int datasetReaderBufferSize;
+    private @Value("${application.datasetBatchImportSize}") long batchImportSize;
 
     public InitialMigration(RocksDatabase rocks, RocksDbSerializations rocksDbSerializations) {
 
@@ -46,42 +44,73 @@ public class InitialMigration implements RocksDbMigration {
     @Override
     public void migrate() {
         logger.info("Importing the datasets(will take a while)");
+        importPersons();
+        importPrincipals();
         importTitles();
         importCrews();
-        importPersons();
         logger.info("Finished importing the datasets");
     }
 
+    private void importPrincipals() {
+        logger.info("Importing principals...");
+        final TreeMap<String, Principal> principalsBatch = new TreeMap<>();
+        final TreeSet<String> principalsSecondaryPersons = new TreeSet<>();
+        try (CsvReader csv = createCsvBuilder().build(Paths.get(titlePrincipalsTsv))) {
+            csv.stream().skip(1).map(WrappedCsvRow::new).forEach(csvRow -> {
+                Principal principal = createPrincipalFromRow(csvRow);
+                principalsBatch.put(String.format("%s.%s.%s", principal.getTitleId(), principal.getPersonId(), principal.getCategory()), principal);
+                principalsSecondaryPersons.add(String.format("%s.%s.%s", principal.getPersonId(), principal.getTitleId(), principal.getCategory()));
+                if (principalsBatch.size() == batchImportSize) {
+                    ingestPrincipals(principalsBatch);
+                    logger.debug("Imported {} principals", batchImportSize);
+                    principalsBatch.clear();
+                }
+                if (principalsSecondaryPersons.size() == batchImportSize) {
+                    ingestPrincipalsSecondaryIndexPersons(principalsSecondaryPersons);
+                    principalsSecondaryPersons.clear();
+                }
+
+            });
+            if (principalsBatch.size() > 0) {
+                ingestPrincipals(principalsBatch);
+            }
+            if (principalsSecondaryPersons.size() > 0) {
+                ingestPrincipalsSecondaryIndexPersons(principalsSecondaryPersons);
+            }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+        logger.info("Finished importing principals");
+    }
+
+    private static CsvReader.CsvReaderBuilder createCsvBuilder() {
+        return CsvReader.builder()
+                .fieldSeparator('\t')
+                .quoteCharacter('\0')
+                .commentStrategy(CommentStrategy.SKIP)
+                .commentCharacter('#')
+                .skipEmptyRows(true)
+                .errorOnDifferentFieldCount(false);
+    }
+
+
     private void importTitles() {
         logger.info("Importing titles...");
-        TsvParserSettings settings = createTsvParserSettings();
         final TreeSet<Title> titlesBatch = new TreeSet<>(Comparator.comparing(Title::getId));
-        ObjectRowProcessor rowProcessor = new ObjectRowProcessor() {
-            @Override
-            public void rowProcessed(Object[] row, ParsingContext context) {
+        try (CsvReader csv = createCsvBuilder().build(Paths.get(titleBasicsTsv))) {
+            csv.stream().skip(1).map(WrappedCsvRow::new).forEach(row -> {
                 Title title = createTitleFromRow(row);
                 titlesBatch.add(title);
-                if (titlesBatch.size() == BATCH_INSERT_SIZE) {
+                if (titlesBatch.size() == batchImportSize) {
                     ingestTitles(titlesBatch);
-                    logger.debug("Imported {} titles", BATCH_INSERT_SIZE);
+                    logger.debug("Imported {} titles", batchImportSize);
                     titlesBatch.clear();
                 }
-            }
-        };
-
-        rowProcessor.convertAll(Conversions.toNull("\\N"));
-        rowProcessor.convertFields(Conversions.string()).set("tconst", "primaryTitle", "originalTitle");
-        rowProcessor.convertFields(Conversions.toInteger()).set("isAdult");
-        rowProcessor.convertFields(Conversions.toInteger()).set("startYear", "endYear", "runtimeMinutes");
-        rowProcessor.convertFields(Conversions.string(), new StringArrayConversion()).set("genres");
-        settings.setProcessor(rowProcessor);
-        TsvParser parser = new TsvParser(settings);
-        try {
-            parser.parse(new FileReader(titleBasicsTsv));
+            });
             if (titlesBatch.size() > 0) {
                 ingestTitles(titlesBatch);
             }
-        } catch (FileNotFoundException e) {
+        } catch (IOException e) {
             throw new RuntimeException(e);
         }
         logger.info("Finished importing titles");
@@ -90,130 +119,147 @@ public class InitialMigration implements RocksDbMigration {
     private void importPersons() {
         logger.info("Importing persons...");
         TreeMap<String, Integer> deathYearsBatch = new TreeMap<>();
-        TsvParserSettings settings = createTsvParserSettings();
         final TreeSet<Person> personsBatch = new TreeSet<>(Comparator.comparing(Person::getId));
-        ObjectRowProcessor rowProcessor = new ObjectRowProcessor() {
-            @Override
-            public void rowProcessed(Object[] row, ParsingContext context) {
+        try (CsvReader csv = createCsvBuilder().build(Paths.get(personsTsv))) {
+            csv.stream().skip(1).map(WrappedCsvRow::new).forEach(row -> {
                 Person person = createPersonFromRow(row);
                 personsBatch.add(person);
                 if (person.getDeathYear() != null) {
                     deathYearsBatch.put(String.format("%s.deathYear", person.getId()), person.getDeathYear());
                 }
-                if (personsBatch.size() == BATCH_INSERT_SIZE) {
+                if (personsBatch.size() == batchImportSize) {
                     ingestPersons(personsBatch);
-                    logger.debug("Imported {} persons", BATCH_INSERT_SIZE);
+                    logger.debug("Imported {} persons", batchImportSize);
                     personsBatch.clear();
                 }
-                if (deathYearsBatch.size() == BATCH_INSERT_SIZE) {
+                if (deathYearsBatch.size() == batchImportSize) {
                     ingestPersonsDeathYear(deathYearsBatch);
                     deathYearsBatch.clear();
                 }
-            }
-        };
-
-        rowProcessor.convertAll(Conversions.toNull("\\N"));
-        rowProcessor.convertFields(Conversions.string()).set("nconst", "primaryName");
-        rowProcessor.convertFields(Conversions.toInteger()).set("birthYear", "deathYear");
-        rowProcessor.convertFields(Conversions.string(), new StringArrayConversion()).set("primaryProfession", "knownForTitles");
-        settings.setProcessor(rowProcessor);
-        TsvParser parser = new TsvParser(settings);
-        try {
-            parser.parse(new FileReader(personsTsv));
+            });
             if (personsBatch.size() > 0) {
                 ingestPersons(personsBatch);
             }
             if (deathYearsBatch.size() > 0) {
                 ingestPersonsDeathYear(deathYearsBatch);
             }
-            logger.info("Finished importing persons");
-        } catch (FileNotFoundException e) {
+        } catch (IOException e) {
             throw new RuntimeException(e);
         }
     }
 
-    private Person createPersonFromRow(Object[] row) {
+    private Person createPersonFromRow(WrappedCsvRow row) {
         Person person = new Person();
-        person.setId(Objects.toString(row[0]));
-        person.setPrimaryName(Objects.toString(row[1]));
-        person.setBirthYear((Integer) row[2]);
-        person.setDeathYear((Integer) row[3]);
-        person.setPrimaryProfession((Collection<String>) row[4]);
-        person.setKnownForTitles((Collection<String>) row[5]);
+        person.setId(row.getField(0));
+        person.setPrimaryName(row.getField(1));
+        if (row.getField(2) != null)
+            person.setBirthYear(Integer.parseInt(row.getField(2)));
+        if (row.getField(3) != null)
+            person.setDeathYear(Integer.parseInt(row.getField(3)));
+        if (row.getField(4) != null)
+            person.setPrimaryProfession(Arrays.stream(row.getField(4).split(",")).toList());
+        if (row.getField(5) != null)
+            person.setKnownForTitles(Arrays.stream(row.getField(5).split(",")).toList());
         return person;
     }
 
-    private Title createTitleFromRow(Object[] row) {
+    private Title createTitleFromRow(WrappedCsvRow row) {
         Title title = new Title();
-        title.setId(Objects.toString(row[0]));
-        title.setPrimaryTitle(Objects.toString(row[2]));
-        title.setOriginalTitle(Objects.toString(row[3]));
-        Integer adult = (Integer) row[4];
+        title.setId(row.getField(0));
+        title.setTitleType(row.getField(1));
+        title.setPrimaryTitle(row.getField(2));
+        title.setOriginalTitle(row.getField(3));
+
+        int adult = Integer.parseInt(row.getField(4));
         title.setAdult(adult == 1);
-        title.setStartYear((Integer) row[5]);
-        title.setEndYear((Integer) row[6]);
-        title.setRuntimeMinutes((Integer) row[7]);
-        title.setGenres((Collection<String>) row[8]);
+        if (row.getField(5) != null)
+            title.setStartYear(Integer.parseInt(row.getField(5)));
+        if (row.getField(6) != null)
+            title.setEndYear(Integer.parseInt(row.getField(6)));
+        if (row.getField(7) != null)
+            title.setRuntimeMinutes(Integer.parseInt(row.getField(7)));
+        if (row.getField(8) != null) {
+            title.setGenres(Arrays.stream(row.getField(8).split(",")).toList());
+        }
         title.setDirectors(Collections.emptyList());
         title.setWriters(Collections.emptyList());
         return title;
+    }
+
+    private Principal createPrincipalFromRow(WrappedCsvRow row) {
+        Principal p = new Principal();
+        p.setTitleId(row.getField(0));
+        p.setPersonId(row.getField(2));
+        p.setCategory(row.getField(3));
+        p.setJob(row.getField(4));
+        p.setCharacters(row.getField(5));
+        return p;
     }
 
     private void importCrews() {
         logger.info("Importing crews...");
         TreeSet<String> writers = new TreeSet<>();
         TreeSet<String> directors = new TreeSet<>();
-        TsvParserSettings parserSettings = createTsvParserSettings();
-        ObjectRowProcessor rowProcessor = new ObjectRowProcessor() {
-            @Override
-            public void rowProcessed(Object[] row, ParsingContext context) {
-                String titleId = Objects.toString(row[0]);
-                if (row[1] != null && row[1] instanceof Collection<?> titleDirectors && !titleDirectors.isEmpty()) {
-                    String directorsSubKey = String.join(",", ((Collection<String>) row[1]).stream().sorted().toList());
+        try (CsvReader csv = createCsvBuilder().build(Paths.get(titleCrewTsv))) {
+            csv.stream().skip(1).map(WrappedCsvRow::new).forEach(row -> {
+                String titleId = row.getField(0);
+                if (row.getField(1) != null) {
+                    List<String> directorIds = Arrays.stream(row.getField(1).split(",")).map(String::trim).sorted().toList();
+                    String directorsSubKey = String.join(",", directorIds);
                     directors.add(String.format("%s.%s", titleId, directorsSubKey));
                 }
-                if (row[2] != null && row[2] instanceof Collection<?> titleWriters && !titleWriters.isEmpty()) {
-                    String writersSubKey = String.join(",", ((Collection<String>) row[2]).stream().sorted().toList());
+                if (row.getField(2) != null) {
+                    List<String> writerIds = Arrays.stream(row.getField(2).split(",")).map(String::trim).sorted().toList();
+                    String writersSubKey = String.join(",", writerIds.stream().sorted().toList());
                     writers.add(String.format("%s.%s", titleId, writersSubKey));
                 }
-                if (writers.size() == BATCH_INSERT_SIZE) {
+                if (writers.size() == batchImportSize) {
                     ingestWriters(writers);
-                    logger.debug("Imported {} writers", BATCH_INSERT_SIZE);
+                    logger.debug("Imported {} writers", batchImportSize);
                     writers.clear();
                 }
-                if (directors.size() == BATCH_INSERT_SIZE) {
+                if (directors.size() == batchImportSize) {
                     ingestDirectors(directors);
-                    logger.debug("Imported {} directors", BATCH_INSERT_SIZE);
+                    logger.debug("Imported {} directors", batchImportSize);
                     directors.clear();
                 }
-            }
-        };
-
-        rowProcessor.convertAll(Conversions.toNull("\\N"));
-        rowProcessor.convertFields(Conversions.string()).set("tconst");
-        rowProcessor.convertFields(Conversions.string(), new StringArrayConversion()).set("directors", "writers");
-        parserSettings.setProcessor(rowProcessor);
-        TsvParser parser = new TsvParser(parserSettings);
-        try {
-            parser.parse(new FileReader(titleCrewTsv));
+            });
             if (writers.size() > 0) {
                 ingestWriters(writers);
             }
             if (directors.size() > 0) {
                 ingestDirectors(directors);
             }
-        } catch (FileNotFoundException e) {
+        } catch (IOException e) {
             throw new RuntimeException(e);
         }
         logger.info("Finished importing crews");
     }
 
-    private TsvParserSettings createTsvParserSettings() {
-        TsvParserSettings parserSettings = new TsvParserSettings();
-        parserSettings.setMaxCharsPerColumn(15000);
-        parserSettings.setHeaderExtractionEnabled(true);
-        parserSettings.setInputBufferSize(datasetReaderBufferSize);
-        return parserSettings;
+    private void ingestPrincipals(TreeMap<String, Principal> principals) {
+        ingest(rocks.principalsPrimaryIndex(), sstFileWriter -> {
+            try {
+                for (Map.Entry<String, Principal> entry : principals.entrySet()) {
+                    sstFileWriter.put(entry.getKey().getBytes(), rocksDbSerializations.serializePrincipal(entry.getValue()));
+                }
+            } catch (RocksDBException e) {
+                throw new RuntimeException(e);
+            }
+
+        });
+    }
+
+    private void ingestPrincipalsSecondaryIndexPersons(TreeSet<String> keys) {
+        ingest(rocks.principalsSecondaryIndexPersons(), sstFileWriter -> {
+            try {
+                for (String key : keys) {
+                    sstFileWriter.put(key.getBytes(), new byte[0]);
+                }
+            } catch (RocksDBException e) {
+                throw new RuntimeException(e);
+            }
+
+        });
     }
 
     private void ingestTitles(Iterable<Title> titles) {
@@ -290,13 +336,20 @@ public class InitialMigration implements RocksDbMigration {
     }
 
     void ingest(ColumnFamilyHandle index, Consumer<SstFileWriter> writer) {
-        try (SstFileWriter sstFileWriter = new SstFileWriter(new EnvOptions(), rocks.createOptions());) {
-            Path sstFilePath = Files.createTempFile(null, "sst");
+        logger.debug("Ingesting data");
+        EnvOptions envOptions = new EnvOptions();
+
+        Options options = rocks.createOptions();
+        try (SstFileWriter sstFileWriter = new SstFileWriter(envOptions, options);) {
+            Path sstFilePath = Files.createTempFile(null, ".sst");
             sstFileWriter.open(sstFilePath.toString());
+            logger.debug("Writing to sst");
             writer.accept(sstFileWriter);
             sstFileWriter.finish();
+            logger.debug("Finished writing to sst");
             // ingest
             ingestToIndex(index, sstFilePath);
+            logger.debug("Finished ingesting data");
         } catch (IOException | RocksDBException e) {
             throw new RuntimeException(e);
         }
@@ -308,4 +361,14 @@ public class InitialMigration implements RocksDbMigration {
         return 1;
     }
 
+    private record WrappedCsvRow(CsvRow row) {
+
+        public String getField(int index) {
+            String value = row.getField(index);
+            if (value.equals("\\N"))
+                return null;
+            return value;
+        }
+
+    }
 }

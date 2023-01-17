@@ -1,14 +1,14 @@
 package com.lobox.assignments.imdb.application.domain.models;
 
-import java.util.Collection;
+import java.io.Serializable;
 
-public class Principal {
+public class Principal implements Serializable {
     private String titleId;
     private Integer titleOrdering;
     private String personId;
     private String category;
     private String job;
-    private Collection<String> characters;
+    private String characters;
 
     public String getTitleId() {
         return titleId;
@@ -50,11 +50,11 @@ public class Principal {
         this.job = job;
     }
 
-    public Collection<String> getCharacters() {
+    public String getCharacters() {
         return characters;
     }
 
-    public void setCharacters(Collection<String> characters) {
+    public void setCharacters(String characters) {
         this.characters = characters;
     }
 }
