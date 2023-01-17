@@ -53,12 +53,13 @@ public class InitialMigration implements RocksDbMigration {
 
     private void importPrincipals() {
         logger.info("Importing principals...");
-        final TreeMap<String, Principal> principalsBatch = new TreeMap<>();
+        final TreeMap<String, byte[]> principalsBatch = new TreeMap<>();
         final TreeSet<String> principalsSecondaryPersons = new TreeSet<>();
         try (CsvReader csv = createCsvBuilder().build(Paths.get(titlePrincipalsTsv))) {
             csv.stream().skip(1).map(WrappedCsvRow::new).forEach(csvRow -> {
                 Principal principal = createPrincipalFromRow(csvRow);
-                principalsBatch.put(String.format("%s.%s.%s", principal.getTitleId(), principal.getPersonId(), principal.getCategory()), principal);
+                principalsBatch.put(String.format("%s.%s.%s", principal.getTitleId(), principal.getPersonId(), principal.getCategory()),
+                        rocksDbSerializations.serializePrincipal(principal));
                 principalsSecondaryPersons.add(String.format("%s.%s.%s", principal.getPersonId(), principal.getTitleId(), principal.getCategory()));
                 if (principalsBatch.size() == batchImportSize) {
                     ingestPrincipals(principalsBatch);
@@ -85,12 +86,12 @@ public class InitialMigration implements RocksDbMigration {
 
     private static CsvReader.CsvReaderBuilder createCsvBuilder() {
         return CsvReader.builder()
-                .fieldSeparator('\t')
-                .quoteCharacter('\0')
-                .commentStrategy(CommentStrategy.SKIP)
-                .commentCharacter('#')
-                .skipEmptyRows(true)
-                .errorOnDifferentFieldCount(false);
+                        .fieldSeparator('\t')
+                        .quoteCharacter('\0')
+                        .commentStrategy(CommentStrategy.SKIP)
+                        .commentCharacter('#')
+                        .skipEmptyRows(true)
+                        .errorOnDifferentFieldCount(false);
     }
 
 
@@ -236,11 +237,24 @@ public class InitialMigration implements RocksDbMigration {
         logger.info("Finished importing crews");
     }
 
-    private void ingestPrincipals(TreeMap<String, Principal> principals) {
+   /* private void ingestPrincipals(TreeMap<String, Principal> principals) {
         ingest(rocks.principalsPrimaryIndex(), sstFileWriter -> {
             try {
                 for (Map.Entry<String, Principal> entry : principals.entrySet()) {
                     sstFileWriter.put(entry.getKey().getBytes(), rocksDbSerializations.serializePrincipal(entry.getValue()));
+                }
+            } catch (RocksDBException e) {
+                throw new RuntimeException(e);
+            }
+
+        });
+    }*/
+
+    private void ingestPrincipals(TreeMap<String, byte[]> principals) {
+        ingest(rocks.principalsPrimaryIndex(), sstFileWriter -> {
+            try {
+                for (Map.Entry<String, byte[]> entry : principals.entrySet()) {
+                    sstFileWriter.put(entry.getKey().getBytes(), entry.getValue());
                 }
             } catch (RocksDBException e) {
                 throw new RuntimeException(e);

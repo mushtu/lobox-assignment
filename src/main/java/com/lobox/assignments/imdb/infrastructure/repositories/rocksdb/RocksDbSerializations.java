@@ -3,32 +3,41 @@ package com.lobox.assignments.imdb.infrastructure.repositories.rocksdb;
 import com.lobox.assignments.imdb.application.domain.models.Person;
 import com.lobox.assignments.imdb.application.domain.models.Principal;
 import com.lobox.assignments.imdb.application.domain.models.Title;
+import com.lobox.assignments.imdb.infrastructure.serialization.KryoObjectSerialization;
+import com.lobox.assignments.imdb.infrastructure.serialization.ObjectSerialization;
 import org.springframework.stereotype.Component;
-import org.springframework.util.SerializationUtils;
+
+import java.util.List;
 
 @Component
 public class RocksDbSerializations {
+    private final ObjectSerialization objectSerialization;
+
+    public RocksDbSerializations() {
+        objectSerialization = new KryoObjectSerialization(List.of(Title.class, Person.class, Principal.class));
+    }
+
     public byte[] serializeTitle(Title title) {
-        return SerializationUtils.serialize(title);
+        return objectSerialization.serialize(title);
     }
 
     public Title deserializeTitle(byte[] value) {
-        return (Title) SerializationUtils.deserialize(value);
+        return objectSerialization.deserialize(value, Title.class);
     }
 
     public byte[] serializePerson(Person person) {
-        return SerializationUtils.serialize(person);
+        return objectSerialization.serialize(person);
     }
 
     public Person deserializePerson(byte[] value) {
-        return (Person) SerializationUtils.deserialize(value);
+        return objectSerialization.deserialize(value, Person.class);
     }
 
     public byte[] serializePrincipal(Principal principal) {
-        return SerializationUtils.serialize(principal);
+        return objectSerialization.serialize(principal);
     }
 
     public Principal deserializePrincipal(byte[] value) {
-        return (Principal) SerializationUtils.deserialize(value);
+        return objectSerialization.deserialize(value, Principal.class);
     }
 }
