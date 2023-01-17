@@ -1,6 +1,7 @@
 package com.lobox.assignments.imdb.infrastructure.repositories.rocksdb;
 
 import com.lobox.assignments.imdb.application.domain.models.PageRequest;
+import com.lobox.assignments.imdb.application.domain.models.PrincipalCategory;
 import com.lobox.assignments.imdb.application.domain.models.Title;
 import com.lobox.assignments.imdb.application.domain.repositories.PersonRepository;
 import com.lobox.assignments.imdb.application.domain.repositories.TitleRepository;
@@ -127,6 +128,40 @@ public class RocksDbTitleRepository implements TitleRepository {
                 return findAllByIds(titleIds);
             }
         }
+    }
+
+    @Override
+    public Iterable<Title> findActorsCommonTitles(String firstActorId, String secondActorId) {
+        // principals secondary index key format => {personId}.{titleId}.{category}
+        List<String> commonTitles = new ArrayList<>();
+        try (RocksIterator firstItr = rocks.db().newIterator(rocks.principalsSecondaryIndexPersons());
+             RocksIterator secondItr = rocks.db().newIterator(rocks.principalsSecondaryIndexPersons())) {
+            List<String> firstActorKeys = getIteratorKeysStartsWith(firstItr, firstActorId + ".").stream()
+                    .map(key -> key.substring(key.indexOf(".") + 1)).toList();
+            List<String> secondActorKeys = getIteratorKeysStartsWith(secondItr, secondActorId + ".").stream()
+                    .map(key -> key.substring(key.indexOf(".") + 1)).toList();
+            firstActorKeys.stream()
+                    .filter(key -> key.endsWith(PrincipalCategory.ACTOR))
+                    .filter(secondActorKeys::contains)
+                    .map(key -> {
+                        String[] tokens = key.split("\\.");
+                        return tokens[0];
+                    }).forEach(commonTitles::add);
+        }
+        return findAllByIds(commonTitles);
+    }
+
+    private List<String> getIteratorKeysStartsWith(RocksIterator itr, String prefix) {
+        List<String> keys = new ArrayList<>();
+        itr.seek(prefix.getBytes());
+        while (itr.isValid()) {
+            String key = new String(itr.key());
+            if (!key.startsWith(prefix))
+                break;
+            keys.add(key);
+            itr.next();
+        }
+        return keys;
     }
 
     /*public void insertMultiple(Iterable<Title> titles) {

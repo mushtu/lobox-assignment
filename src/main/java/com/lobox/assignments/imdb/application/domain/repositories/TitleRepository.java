@@ -12,4 +12,6 @@ public interface TitleRepository {
     Collection<Title> findAllByIds(Iterable<String> ids);
 
     Collection<Title> findAllWithEqualDirectorAndWriterAndAlive(PageRequest<String> pageRequest);
+
+    Iterable<Title> findActorsCommonTitles(String firstActorId, String secondActorId);
 }
