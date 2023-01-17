@@ -59,7 +59,7 @@ public class RocksDbTitleRepository implements TitleRepository {
     }
 
     @Override
-    public Optional<Title> FindById(String id) {
+    public Optional<Title> findById(String id) {
         try {
             byte[] bytes = rocks.db().get(rocks.titlesPrimaryIndex(), id.getBytes());
             if (bytes != null) {
@@ -74,7 +74,7 @@ public class RocksDbTitleRepository implements TitleRepository {
     }
 
     @Override
-    public Collection<Title> FindAllByIds(Iterable<String> ids) {
+    public Collection<Title> findAllByIds(Iterable<String> ids) {
         try {
             List<byte[]> values = rocks.db().multiGetAsList(StreamSupport.stream(ids.spliterator(), false).map(s -> rocks.titlesPrimaryIndex()).toList(),
                     StreamSupport.stream(ids.spliterator(), false).map(String::getBytes).collect(Collectors.toList()));
@@ -87,7 +87,7 @@ public class RocksDbTitleRepository implements TitleRepository {
     }
 
     @Override
-    public Collection<Title> FindAllWithEqualDirectorAndWriterAndAlive(PageRequest<String> pageRequest) {
+    public Collection<Title> findAllWithEqualDirectorAndWriterAndAlive(PageRequest<String> pageRequest) {
         BytewiseComparator comparator = new BytewiseComparator(new ComparatorOptions());
         List<String> titleIds = new ArrayList<>();
         try (RocksIterator directorIterator = rocks.db().newIterator(rocks.titlesSecondaryIndexDirectors())) {
@@ -111,7 +111,7 @@ public class RocksDbTitleRepository implements TitleRepository {
                         String key = new String(directorKey);
                         String[] tokens = key.split("\\.");
                         List<String> persons = Arrays.stream(tokens[1].split(",")).toList();
-                        if (personRepository.FindAllWithIdsAndAlive(persons).size() == persons.size()) {
+                        if (personRepository.findAllWithIdsAndAlive(persons).size() == persons.size()) {
                             titleIds.add(tokens[0]);
                         }
                         directorIterator.next();
@@ -124,7 +124,7 @@ public class RocksDbTitleRepository implements TitleRepository {
                         }
                     }
                 }
-                return FindAllByIds(titleIds);
+                return findAllByIds(titleIds);
             }
         }
     }

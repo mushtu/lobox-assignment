@@ -23,7 +23,7 @@ public class RocksDbPersonRepository implements PersonRepository {
     }
 
     @Override
-    public Collection<Person> FindAllWithIdsAndAlive(Iterable<String> ids) {
+    public Collection<Person> findAllWithIdsAndAlive(Iterable<String> ids) {
         try {
             List<Person> alivePersons = new ArrayList<>();
             List<Person> persons = rocks.db().multiGetAsList(

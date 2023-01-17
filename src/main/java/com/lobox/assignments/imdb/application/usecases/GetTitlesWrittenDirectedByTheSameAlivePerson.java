@@ -30,7 +30,7 @@ public class GetTitlesWrittenDirectedByTheSameAlivePerson implements Command<Ite
 
         @Override
         public Iterable<TitleDto> handle(GetTitlesWrittenDirectedByTheSameAlivePerson command) {
-            return titleRepository.FindAllWithEqualDirectorAndWriterAndAlive(command.pageRequest)
+            return titleRepository.findAllWithEqualDirectorAndWriterAndAlive(command.pageRequest)
                     .stream().map(ObjectMapper::toTitleDto).collect(Collectors.toList());
         }
     }

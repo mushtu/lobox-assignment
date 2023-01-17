@@ -7,9 +7,9 @@ import java.util.Collection;
 import java.util.Optional;
 
 public interface TitleRepository {
-    Optional<Title> FindById(String id);
+    Optional<Title> findById(String id);
 
-    Collection<Title> FindAllByIds(Iterable<String> ids);
+    Collection<Title> findAllByIds(Iterable<String> ids);
 
-    Collection<Title> FindAllWithEqualDirectorAndWriterAndAlive(PageRequest<String> pageRequest);
+    Collection<Title> findAllWithEqualDirectorAndWriterAndAlive(PageRequest<String> pageRequest);
 }
