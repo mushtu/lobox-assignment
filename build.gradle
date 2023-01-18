@@ -8,7 +8,7 @@ group = 'com.lobox.assignments'
 version = '0.0.1-SNAPSHOT'
 sourceCompatibility = '17'
 bootRun {
-    jvmArgs = ["-Xmx6g","-Djava.io.tmpdir=/media/mushtu/New Volume1/lobox/tmp"]
+    jvmArgs = ["-Xmx6g"]
 }
 repositories {
     mavenCentral()
