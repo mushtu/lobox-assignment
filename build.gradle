@@ -15,6 +15,7 @@ repositories {
 }
 
 dependencies {
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.0.2'
     implementation 'com.esotericsoftware:kryo:5.4.0'
     implementation 'de.siegmar:fastcsv:2.2.1'
     implementation group: 'org.rocksdb', name: 'rocksdbjni', version: '7.8.3'
