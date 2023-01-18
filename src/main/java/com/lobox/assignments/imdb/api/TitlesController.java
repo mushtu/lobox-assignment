@@ -33,7 +33,7 @@ public class TitlesController {
     }
 
     @GetMapping("genre-best-titles")
-    public Map<Integer, TitleDto> GetActorsCommonTitles(@RequestParam String genre) {
+    public Map<Integer, TitleDto> GetGenreBestTitles(@RequestParam String genre) {
         return new GetBestTitleOnEachYearByGenre(genre).execute(pipeline);
     }
 }
