@@ -3,7 +3,10 @@ package com.lobox.assignments.imdb.infrastructure.repositories.rocksdb.migration
 import com.lobox.assignments.imdb.application.domain.models.Person;
 import com.lobox.assignments.imdb.application.domain.models.Principal;
 import com.lobox.assignments.imdb.application.domain.models.Title;
+import com.lobox.assignments.imdb.application.domain.models.TitleRating;
+import com.lobox.assignments.imdb.application.services.TitleScoreService;
 import com.lobox.assignments.imdb.infrastructure.repositories.rocksdb.RocksDatabase;
+import com.lobox.assignments.imdb.infrastructure.repositories.rocksdb.RocksDbProperties;
 import com.lobox.assignments.imdb.infrastructure.repositories.rocksdb.RocksDbSerializations;
 import com.lobox.assignments.imdb.infrastructure.repositories.rocksdb.migration.RocksDbMigration;
 import de.siegmar.fastcsv.reader.CommentStrategy;
@@ -16,7 +19,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
-import java.io.Reader;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -29,26 +31,53 @@ public class InitialMigration implements RocksDbMigration {
     private final Logger logger = LoggerFactory.getLogger(InitialMigration.class);
     private final RocksDatabase rocks;
     private final RocksDbSerializations rocksDbSerializations;
+    private final RocksDbProperties rocksDbProperties;
+    private final TitleScoreService titleScoreService;
+    private @Value("${application.datasets.title-ratings-tsv}") String ratingsTsv;
     private @Value("${application.datasets.title-basics-tsv}") String titleBasicsTsv;
     private @Value("${application.datasets.title-principals-tsv}") String titlePrincipalsTsv;
     private @Value("${application.datasets.title-crew-tsv}") String titleCrewTsv;
     private @Value("${application.datasets.name-basics-tsv}") String personsTsv;
     private @Value("${application.datasetBatchImportSize}") long batchImportSize;
 
-    public InitialMigration(RocksDatabase rocks, RocksDbSerializations rocksDbSerializations) {
+
+    public InitialMigration(RocksDatabase rocks, RocksDbSerializations rocksDbSerializations, RocksDbProperties rocksDbProperties,
+                            TitleScoreService titleScoreService) {
 
         this.rocks = rocks;
         this.rocksDbSerializations = rocksDbSerializations;
+        this.rocksDbProperties = rocksDbProperties;
+        this.titleScoreService = titleScoreService;
     }
 
     @Override
     public void migrate() {
         logger.info("Importing the datasets(will take a while)");
+        importRatingsAndTitles();
         importPersons();
         importPrincipals();
-        importTitles();
         importCrews();
         logger.info("Finished importing the datasets");
+    }
+
+    private TreeSet<TitleRating> importRatings() {
+        logger.info("Importing ratings...");
+        final TreeSet<TitleRating> ratings = new TreeSet<>(Comparator.comparing(TitleRating::getTitleId));
+        try (CsvReader csv = createCsvBuilder().build(Paths.get(ratingsTsv))) {
+            csv.stream().skip(1).map(WrappedCsvRow::new).forEach(row -> {
+                TitleRating rating = new TitleRating();
+                rating.setTitleId(row.getField(0));
+                rating.setAverageRating(Float.parseFloat(row.getField(1)));
+                rating.setNumVotes(Integer.parseInt(row.getField(2)));
+                ratings.add(rating);
+            });
+            ingestRatings(ratings);
+            logger.info("Finished importing ratings");
+            return ratings;
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+
     }
 
     private void importPrincipals() {
@@ -95,12 +124,15 @@ public class InitialMigration implements RocksDbMigration {
     }
 
 
-    private void importTitles() {
+    private void importRatingsAndTitles() {
+        TreeSet<TitleRating> ratings = importRatings();
         logger.info("Importing titles...");
+        final Map<String, Float> scores = titleScoreService.calculateTitlesScore(ratings);
         final TreeSet<Title> titlesBatch = new TreeSet<>(Comparator.comparing(Title::getId));
         try (CsvReader csv = createCsvBuilder().build(Paths.get(titleBasicsTsv))) {
             csv.stream().skip(1).map(WrappedCsvRow::new).forEach(row -> {
                 Title title = createTitleFromRow(row);
+                title.setScore(scores.get(title.getId()));
                 titlesBatch.add(title);
                 if (titlesBatch.size() == batchImportSize) {
                     ingestTitles(titlesBatch);
@@ -237,19 +269,6 @@ public class InitialMigration implements RocksDbMigration {
         logger.info("Finished importing crews");
     }
 
-   /* private void ingestPrincipals(TreeMap<String, Principal> principals) {
-        ingest(rocks.principalsPrimaryIndex(), sstFileWriter -> {
-            try {
-                for (Map.Entry<String, Principal> entry : principals.entrySet()) {
-                    sstFileWriter.put(entry.getKey().getBytes(), rocksDbSerializations.serializePrincipal(entry.getValue()));
-                }
-            } catch (RocksDBException e) {
-                throw new RuntimeException(e);
-            }
-
-        });
-    }*/
-
     private void ingestPrincipals(TreeMap<String, byte[]> principals) {
         ingest(rocks.principalsPrimaryIndex(), sstFileWriter -> {
             try {
@@ -277,15 +296,31 @@ public class InitialMigration implements RocksDbMigration {
     }
 
     private void ingestTitles(Iterable<Title> titles) {
+        final TreeSet<String> genreYearScoreKeys = new TreeSet<>();
         ingest(rocks.titlesPrimaryIndex(), sstFileWriter -> {
             try {
                 for (Title title : titles) {
                     sstFileWriter.put(title.getId().getBytes(), rocksDbSerializations.serializeTitle(title));
+                    if (title.getGenres() != null && title.getStartYear() != null && title.getScore() != null) {
+                        title.getGenres().forEach(genre -> {
+                            genreYearScoreKeys.add(String.format("%s|%s|%s|%s", genre, title.getStartYear(), title.getScore(), title.getId()));
+                        });
+                    }
+
                 }
             } catch (RocksDBException e) {
                 throw new RuntimeException(e);
             }
+        });
 
+        ingest(rocks.titlesSecondaryIndexGenreStartYear(), sstFileWriter -> {
+            try {
+                for (String key : genreYearScoreKeys) {
+                    sstFileWriter.put(key.getBytes(), new byte[0]);
+                }
+            } catch (RocksDBException e) {
+                throw new RuntimeException(e);
+            }
         });
     }
 
@@ -338,6 +373,31 @@ public class InitialMigration implements RocksDbMigration {
         });
     }
 
+    private void ingestRatings(Iterable<TitleRating> ratings) {
+        ingest(rocks.ratingsPrimaryIndex(), sstFileWriter -> {
+            try {
+                for (TitleRating titleRating : ratings) {
+                    sstFileWriter.put(titleRating.getTitleId().getBytes(), rocksDbSerializations.serializeTitleRating(titleRating));
+                }
+            } catch (RocksDBException e) {
+                throw new RuntimeException(e);
+            }
+        });
+    }
+
+    private void calculateScoresAndIngest(Collection<TitleRating> ratings) {
+        final Map<String, Float> scores = titleScoreService.calculateTitlesScore(ratings);
+        ingest(rocks.titlesSecondaryIndexScore(), sstFileWriter -> {
+            try {
+                for (Map.Entry<String, Float> entry : scores.entrySet()) {
+                    sstFileWriter.put(entry.getKey().getBytes(), entry.getValue().toString().getBytes());
+                }
+            } catch (RocksDBException e) {
+                throw new RuntimeException(e);
+            }
+        });
+    }
+
     private void ingestToIndex(ColumnFamilyHandle index, Path sstFilePath) throws RocksDBException {
         try (IngestExternalFileOptions options = new IngestExternalFileOptions()) {
             options.setMoveFiles(true);
@@ -355,7 +415,8 @@ public class InitialMigration implements RocksDbMigration {
 
         Options options = rocks.createOptions();
         try (SstFileWriter sstFileWriter = new SstFileWriter(envOptions, options);) {
-            Path sstFilePath = Files.createTempFile(null, ".sst");
+            Files.createDirectories(Paths.get(rocksDbProperties.getDataDir(), "tmp"));
+            Path sstFilePath = Files.createTempFile(Paths.get(rocksDbProperties.getDataDir(), "tmp"), null, ".sst");
             sstFileWriter.open(sstFilePath.toString());
             logger.debug("Writing to sst");
             writer.accept(sstFileWriter);
@@ -372,7 +433,7 @@ public class InitialMigration implements RocksDbMigration {
     @Override
 
     public int version() {
-        return 1;
+        return 2;
     }
 
     private record WrappedCsvRow(CsvRow row) {

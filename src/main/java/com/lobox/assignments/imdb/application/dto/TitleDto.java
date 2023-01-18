@@ -1,7 +1,5 @@
 package com.lobox.assignments.imdb.application.dto;
 
-import com.lobox.assignments.imdb.application.domain.models.Title;
-
 import java.util.Collection;
 
 public class TitleDto {
@@ -17,6 +15,7 @@ public class TitleDto {
     private Collection<String> directors;
     private Collection<String> writers;
     private Collection<String> cast;
+    private Float score;
 
     public String getId() {
         return id;
@@ -112,5 +111,13 @@ public class TitleDto {
 
     public void setCast(Collection<String> cast) {
         this.cast = cast;
+    }
+
+    public Float getScore() {
+        return score;
+    }
+
+    public void setScore(Float score) {
+        this.score = score;
     }
 }

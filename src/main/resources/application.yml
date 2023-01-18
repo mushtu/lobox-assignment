@@ -15,3 +15,4 @@ application:
     title-basics-tsv: "/media/mushtu/New Volume1/ImdbDataSet/title.basics.tsv"
     title-crew-tsv: "/media/mushtu/New Volume1/ImdbDataSet/title.crew.tsv"
     name-basics-tsv: "/media/mushtu/New Volume1/ImdbDataSet/name.basics.tsv"
+    title-ratings-tsv: "/media/mushtu/New Volume1/ImdbDataSet/title.ratings.tsv"

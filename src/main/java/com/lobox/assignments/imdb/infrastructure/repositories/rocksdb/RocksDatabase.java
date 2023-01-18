@@ -18,6 +18,10 @@ public class RocksDatabase {
     private final Logger logger = LoggerFactory.getLogger(RocksDbTitleRepository.class);
     private static final String DATABASE_NAME = "imdb";
 
+    private static final String TITLES_GENRE_START_YEAR_INDEX_NAME = "titles-genres-start-year";
+    private static final String TITLES_START_YEAR_INDEX_NAME = "titles-start-year-index";
+    private static final String RATINGS_PRIMARY_INDEX_NAME = "ratings";
+    private static final String TITLES_SCORE_INDEX_NAME = "titles-score-index";
     private static final String PRINCIPALS_PRIMARY_INDEX_NAME = "principals";
     private static final String TITLES_PRIMARY_INDEX_NAME = "titles";
     private static final String PERSONS_PRIMARY_INDEX_NAME = "persons";
@@ -28,6 +32,7 @@ public class RocksDatabase {
     private static final String PRINCIPALS_PERSON_INDEX_NAME = "principals-person-index";
     private final RocksDbProperties rocksDbProperties;
     private RocksDB db;
+    private ColumnFamilyHandle ratingsPrimaryIndex;
     private ColumnFamilyHandle principalsPrimaryIndex;
     private ColumnFamilyHandle titlesPrimaryIndex;
     private ColumnFamilyHandle personsPrimaryIndex;
@@ -35,6 +40,8 @@ public class RocksDatabase {
     private ColumnFamilyHandle titlesSecondaryIndexDirectors;
     private ColumnFamilyHandle personsSecondaryIndexDeathYear;
     private ColumnFamilyHandle principalsSecondaryIndexPersons;
+    private ColumnFamilyHandle titlesSecondaryIndexScore;
+    private ColumnFamilyHandle titlesSecondaryIndexGenreStartYear;
 
     public RocksDatabase(RocksDbProperties rocksDbProperties) {
         this.rocksDbProperties = rocksDbProperties;
@@ -56,7 +63,10 @@ public class RocksDatabase {
                     new ColumnFamilyDescriptor(PERSONS_PRIMARY_INDEX_NAME.getBytes(), createColumnFamilyOptions()),
                     new ColumnFamilyDescriptor(PERSONS_DEATH_YEAR_INDEX_NAME.getBytes(), createColumnFamilyOptions()),
                     new ColumnFamilyDescriptor(PRINCIPALS_PRIMARY_INDEX_NAME.getBytes(), createColumnFamilyOptions()),
-                    new ColumnFamilyDescriptor(PRINCIPALS_PERSON_INDEX_NAME.getBytes(), createColumnFamilyOptions())
+                    new ColumnFamilyDescriptor(PRINCIPALS_PERSON_INDEX_NAME.getBytes(), createColumnFamilyOptions()),
+                    new ColumnFamilyDescriptor(RATINGS_PRIMARY_INDEX_NAME.getBytes(), createColumnFamilyOptions()),
+                    new ColumnFamilyDescriptor(TITLES_SCORE_INDEX_NAME.getBytes(), createColumnFamilyOptions()),
+                    new ColumnFamilyDescriptor(TITLES_GENRE_START_YEAR_INDEX_NAME.getBytes(), createColumnFamilyOptions())
             );
             List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
             this.db = RocksDB.open(options, dbPath.getAbsolutePath(), columnFamilies, columnFamilyHandles);
@@ -67,6 +77,9 @@ public class RocksDatabase {
             personsSecondaryIndexDeathYear = columnFamilyHandles.get(5);
             principalsPrimaryIndex = columnFamilyHandles.get(6);
             principalsSecondaryIndexPersons = columnFamilyHandles.get(7);
+            ratingsPrimaryIndex = columnFamilyHandles.get(8);
+            titlesSecondaryIndexScore = columnFamilyHandles.get(9);
+            titlesSecondaryIndexGenreStartYear = columnFamilyHandles.get(10);
         } catch (IOException | RocksDBException ex) {
             throw new RuntimeException("Error initializing RocksDB, check configurations and permissions.", ex);
         }
@@ -98,6 +111,14 @@ public class RocksDatabase {
 
     public ColumnFamilyHandle titlesSecondaryIndexDirectors() {
         return titlesSecondaryIndexDirectors;
+    }
+
+    public ColumnFamilyHandle ratingsPrimaryIndex() {
+        return ratingsPrimaryIndex;
+    }
+
+    public ColumnFamilyHandle titlesSecondaryIndexScore() {
+        return titlesSecondaryIndexScore;
     }
 
     public DBOptions createDbOptions() {
@@ -173,5 +194,9 @@ public class RocksDatabase {
 
     public ColumnFamilyHandle principalsSecondaryIndexPersons() {
         return principalsSecondaryIndexPersons;
+    }
+
+    public ColumnFamilyHandle titlesSecondaryIndexGenreStartYear() {
+        return titlesSecondaryIndexGenreStartYear;
     }
 }

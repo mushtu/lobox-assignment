@@ -17,6 +17,7 @@ public class ObjectMapper {
         titleDto.setPrimaryTitle(title.getPrimaryTitle());
         titleDto.setOriginalTitle(title.getOriginalTitle());
         titleDto.setStartYear(title.getStartYear());
+        titleDto.setScore(title.getScore());
         return titleDto;
     }
 }

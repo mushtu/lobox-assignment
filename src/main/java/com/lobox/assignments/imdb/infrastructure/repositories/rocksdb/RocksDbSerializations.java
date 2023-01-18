@@ -3,6 +3,7 @@ package com.lobox.assignments.imdb.infrastructure.repositories.rocksdb;
 import com.lobox.assignments.imdb.application.domain.models.Person;
 import com.lobox.assignments.imdb.application.domain.models.Principal;
 import com.lobox.assignments.imdb.application.domain.models.Title;
+import com.lobox.assignments.imdb.application.domain.models.TitleRating;
 import com.lobox.assignments.imdb.infrastructure.serialization.KryoObjectSerialization;
 import com.lobox.assignments.imdb.infrastructure.serialization.ObjectSerialization;
 import org.springframework.stereotype.Component;
@@ -39,5 +40,13 @@ public class RocksDbSerializations {
 
     public Principal deserializePrincipal(byte[] value) {
         return objectSerialization.deserialize(value, Principal.class);
+    }
+
+    public byte[] serializeTitleRating(TitleRating rating) {
+        return objectSerialization.serialize(rating);
+    }
+
+    public TitleRating deserializeTitleRating(byte[] value) {
+        return objectSerialization.deserialize(value, TitleRating.class);
     }
 }

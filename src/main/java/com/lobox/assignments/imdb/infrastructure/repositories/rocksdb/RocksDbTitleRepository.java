@@ -3,6 +3,7 @@ package com.lobox.assignments.imdb.infrastructure.repositories.rocksdb;
 import com.lobox.assignments.imdb.application.domain.models.PageRequest;
 import com.lobox.assignments.imdb.application.domain.models.PrincipalCategory;
 import com.lobox.assignments.imdb.application.domain.models.Title;
+import com.lobox.assignments.imdb.application.domain.models.TitleRating;
 import com.lobox.assignments.imdb.application.domain.repositories.PersonRepository;
 import com.lobox.assignments.imdb.application.domain.repositories.TitleRepository;
 import org.rocksdb.ComparatorOptions;
@@ -137,18 +138,66 @@ public class RocksDbTitleRepository implements TitleRepository {
         try (RocksIterator firstItr = rocks.db().newIterator(rocks.principalsSecondaryIndexPersons());
              RocksIterator secondItr = rocks.db().newIterator(rocks.principalsSecondaryIndexPersons())) {
             List<String> firstActorKeys = getIteratorKeysStartsWith(firstItr, firstActorId + ".").stream()
-                    .map(key -> key.substring(key.indexOf(".") + 1)).toList();
+                                                                                                 .map(key -> key.substring(key.indexOf(".") + 1)).toList();
             List<String> secondActorKeys = getIteratorKeysStartsWith(secondItr, secondActorId + ".").stream()
-                    .map(key -> key.substring(key.indexOf(".") + 1)).toList();
+                                                                                                    .map(key -> key.substring(key.indexOf(".") + 1)).toList();
             firstActorKeys.stream()
-                    .filter(key -> key.endsWith(PrincipalCategory.ACTOR))
-                    .filter(secondActorKeys::contains)
-                    .map(key -> {
-                        String[] tokens = key.split("\\.");
-                        return tokens[0];
-                    }).forEach(commonTitles::add);
+                          .filter(key -> key.endsWith(PrincipalCategory.ACTOR))
+                          .filter(secondActorKeys::contains)
+                          .map(key -> {
+                              String[] tokens = key.split("\\.");
+                              return tokens[0];
+                          }).forEach(commonTitles::add);
         }
         return findAllByIds(commonTitles);
+    }
+
+    @Override
+    public Collection<TitleRating> findAllRatings() {
+        List<TitleRating> ratings = new ArrayList<>();
+        try (RocksIterator itr = rocks.db().newIterator(rocks.ratingsPrimaryIndex())) {
+            itr.seekToFirst();
+            while (itr.isValid()) {
+                TitleRating rating = rocksDbSerializations.deserializeTitleRating(itr.value());
+                ratings.add(rating);
+                itr.next();
+            }
+        }
+        return ratings;
+    }
+
+    private Optional<Float> getTitleScore(String titleId) {
+        try {
+            byte[] value = rocks.db().get(rocks.titlesSecondaryIndexScore(), titleId.getBytes());
+            if (value != null) return Optional.of(Float.parseFloat(new String(value)));
+            return Optional.empty();
+        } catch (RocksDBException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @Override
+    public Map<Integer, Title> findBestTitleOnEachYearByGenre(String genre) {
+        Map<Integer, Title> result = new HashMap<>();
+        try (RocksIterator genreItr = rocks.db().newIterator(rocks.titlesSecondaryIndexGenreStartYear())) {
+            genreItr.seekForPrev((genre + "|" + Integer.MAX_VALUE + "|").getBytes());
+            while (genreItr.isValid()) {
+                // key format => {genre}|{startYear}|{score}|{titleId}
+                String key = new String(genreItr.key());
+                if (!key.startsWith(genre + "|"))
+                    break;
+                String[] keyParts = key.split("\\|");
+                Integer year = Integer.parseInt(keyParts[1]);
+                String titleId = keyParts[3];
+                float maxScore = Float.parseFloat(keyParts[2]);
+                Title title = findById(titleId).get();
+                title.setScore(maxScore);
+                result.put(year, title);
+                // go to the previous year
+                genreItr.seekForPrev(String.format("%s|%s|", genre, year).getBytes());
+            }
+        }
+        return result;
     }
 
     private List<String> getIteratorKeysStartsWith(RocksIterator itr, String prefix) {
@@ -164,18 +213,4 @@ public class RocksDbTitleRepository implements TitleRepository {
         return keys;
     }
 
-    /*public void insertMultiple(Iterable<Title> titles) {
-        try (WriteBatch wb = new WriteBatch()) {
-            for (Title title : titles) {
-                wb.put(rocks.titlesPrimaryIndex(), title.getId().getBytes(), serializeTitle(title));
-                String directorsSubKey = String.join(",", title.getDirectors().stream().sorted().toList());
-                wb.put(rocks.titlesSecondaryIndexDirectors(), (title.getId() + "." + directorsSubKey).getBytes(), new byte[0]);
-                String writersSubKey = String.join(",", title.getWriters().stream().sorted().toList());
-                wb.put(rocks.titlesSecondaryIndexWriters(), (title.getId() + "." + writersSubKey).getBytes(), new byte[0]);
-            }
-            rocks.db().write(new WriteOptions(), wb);
-        } catch (RocksDBException e) {
-            throw new RuntimeException(e);
-        }
-    }*/
 }

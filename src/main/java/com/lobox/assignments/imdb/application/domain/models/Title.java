@@ -18,6 +18,7 @@ public class Title implements Serializable {
     private Collection<String> writers;
     private Collection<String> cast;
 
+    private Float score;
     public String getId() {
         return id;
     }
@@ -120,5 +121,13 @@ public class Title implements Serializable {
 
     public void setTitleType(String titleType) {
         this.titleType = titleType;
+    }
+
+    public Float getScore() {
+        return score;
+    }
+
+    public void setScore(Float score) {
+        this.score = score;
     }
 }
