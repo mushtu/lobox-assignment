@@ -1,0 +1,21 @@
+logging:
+  level:
+    "com.lobox" : DEBUG
+
+rocksdb:
+  dataDir: "/home/mushtu/lobox/test"
+
+spring:
+  profiles:
+    active: test
+  main:
+    allow-bean-definition-overriding: true
+
+application:
+  datasetBatchImportSize: 250000 # number of records to index in batch
+  datasets:
+    title-principals-tsv:
+    title-basics-tsv:
+    title-crew-tsv:
+    name-basics-tsv:
+    title-ratings-tsv:

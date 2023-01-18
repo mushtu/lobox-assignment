@@ -2,12 +2,14 @@ package com.lobox.assignments.imdb.infrastructure.filters;
 
 import com.lobox.assignments.imdb.application.services.MetricService;
 import jakarta.servlet.*;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 
 
 @Component
+@Profile("!test")
 public class MetricFilter implements Filter {
     private final MetricService metricService;
 

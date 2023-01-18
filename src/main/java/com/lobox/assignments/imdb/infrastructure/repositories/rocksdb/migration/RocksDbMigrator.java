@@ -8,6 +8,7 @@ import org.rocksdb.RocksDBException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 import java.io.File;
@@ -17,6 +18,7 @@ import java.util.Comparator;
 import java.util.Optional;
 
 @Component
+@Profile("!test")
 public class RocksDbMigrator {
 
     private static final String MIGRATION_DB = "migration-history";

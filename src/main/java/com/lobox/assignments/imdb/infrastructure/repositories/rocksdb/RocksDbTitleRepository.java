@@ -59,10 +59,14 @@ public class RocksDbTitleRepository implements TitleRepository {
 
     @Override
     public Collection<Title> findAllByIds(Iterable<String> ids) {
+        if (ids == null)
+            return Collections.emptyList();
+        List<byte[]> keys = StreamSupport.stream(ids.spliterator(), false).map(s -> PrimaryKey.fromString(s).toBytes()).toList();
+        if (keys.size() == 0)
+            return Collections.emptyList();
         try {
-            List<byte[]> values = rocks.db().multiGetAsList(StreamSupport.stream(ids.spliterator(), false).map(s -> rocks.titlesPrimaryIndex()).toList(),
-                    StreamSupport.stream(ids.spliterator(), false).map(s -> PrimaryKey.fromString(s).toBytes()).collect(Collectors.toList()));
-            List<Title> titles = values.stream().map(rocksDbSerializations::deserializeTitle).toList();
+            List<byte[]> values = rocks.db().multiGetAsList(StreamSupport.stream(ids.spliterator(), false).map(s -> rocks.titlesPrimaryIndex()).toList(), keys);
+            List<Title> titles = values.stream().filter(Objects::nonNull).map(rocksDbSerializations::deserializeTitle).toList();
             titles.forEach(this::setTitleCrews);
             return titles;
         } catch (RocksDBException e) {
@@ -168,7 +172,7 @@ public class RocksDbTitleRepository implements TitleRepository {
                          .multiGetAsList(
                                  StreamSupport.stream(ids.spliterator(), false).map(s -> rocks.personsPrimaryIndex()).toList(),
                                  StreamSupport.stream(ids.spliterator(), false).map(s -> PrimaryKey.fromString(s).toBytes()).collect(Collectors.toList()))
-                         .stream().map(rocksDbSerializations::deserializePerson).toList();
+                         .stream().filter(Objects::nonNull).map(rocksDbSerializations::deserializePerson).toList();
             for (Person p : persons) {
                 if (rocks.db().get(rocks.personsSecondaryIndexDeathYear(), PrimaryKey.fromString(p.getId()).toBytes()) == null) {
                     alivePersons.add(p);
