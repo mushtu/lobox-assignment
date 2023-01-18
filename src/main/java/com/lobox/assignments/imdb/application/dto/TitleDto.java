@@ -5,6 +5,7 @@ import java.util.Collection;
 public class TitleDto {
     private String id;
     private Integer ordering;
+    private String titleType;
     private String primaryTitle;
     private String originalTitle;
     private Boolean isAdult;
@@ -119,5 +120,13 @@ public class TitleDto {
 
     public void setScore(Float score) {
         this.score = score;
+    }
+
+    public String getTitleType() {
+        return titleType;
+    }
+
+    public void setTitleType(String titleType) {
+        this.titleType = titleType;
     }
 }
